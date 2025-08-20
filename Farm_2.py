@@ -1,21 +1,3 @@
-
-
-1 of 4,758
-(no subject)
-External
-Inbox
-
-Bryce Gray <graybryce17@yahoo.ca>
-Attachments
-13:08 (1 minute ago)
-to me
-
-
-
-
-Sent from my iPhone
-One attachment
-  • Scanned by Gmail
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -360,5 +342,6 @@ with tab_records:
         colx2.download_button("Download deliveries.csv", f, file_name="deliveries.csv")
     with open(UNLOADS_CSV, "rb") as f:
         colx3.download_button("Download unloads.csv", f, file_name="unloads.csv")
+
 
 st.caption
