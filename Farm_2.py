@@ -343,5 +343,3 @@ with tab_records:
     with open(UNLOADS_CSV, "rb") as f:
         colx3.download_button("Download unloads.csv", f, file_name="unloads.csv")
 
-
-st.caption
