@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import os
 import shutil
+import atexit
 
 # ---------- Configuration ----------
 st.set_page_config(page_title="Farm Bin & Delivery Tracker", page_icon="🌾", layout="wide")
@@ -28,6 +29,15 @@ def backup_file(path):
         fname = os.path.basename(path)
         backup_name = f"{fname}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak.csv"
         shutil.copy(path, os.path.join(BACKUP_DIR, backup_name))
+
+def auto_backup():
+    """Backup all CSVs once when session ends"""
+    backup_file(BIN_CSV)
+    backup_file(DELIVERIES_CSV)
+    backup_file(UNLOADS_CSV)
+
+# Register auto-backup on session end
+atexit.register(auto_backup)
 
 def load_bin_setup():
     _init_csv(BIN_CSV, ["Bin", "Capacity_bu", "Variety", "Bushels_in_bin"])
