@@ -39,7 +39,6 @@ def auto_backup():
     backup_file(DELIVERIES_CSV)
     backup_file(UNLOADS_CSV)
 
-# Register auto-backup on session end
 atexit.register(auto_backup)
 
 def load_bin_setup():
@@ -202,4 +201,42 @@ with tab_records:
         st.dataframe(unloads.sort_values("Timestamp", ascending=False))
 
 # ---------- Bins Setup ----------
-with tab_bins
+with tab_bins:
+    st.subheader("Bins Setup (1–35)")
+    default_bins = [f"Bin {i}" for i in range(1, 36)]
+    for b in default_bins:
+        if b not in bin_setup["Bin"].tolist():
+            bin_setup = pd.concat([bin_setup, pd.DataFrame([{
+                "Bin": b,
+                "Capacity_bu": 0.0,
+                "Variety": "",
+                "Bushels_in_bin": 0.0
+            }])], ignore_index=True)
+    save_bin_setup(bin_setup)
+
+    edited = st.data_editor(
+        bin_setup[["Bin", "Capacity_bu", "Variety"]],
+        num_rows="dynamic",
+        use_container_width=True
+    )
+    if st.button("Save Bins Setup"):
+        for idx, row in edited.iterrows():
+            bin_setup.loc[bin_setup["Bin"] == row["Bin"], ["Capacity_bu", "Variety"]] = row[["Capacity_bu", "Variety"]]
+        save_bin_setup(bin_setup)
+        st.success("Bins updated")
+
+# ---------- Backups / Reload ----------
+with tab_backups:
+    st.subheader("Backups")
+    backup_files = sorted(os.listdir(BACKUP_DIR), reverse=True)
+    if backup_files:
+        for f in backup_files:
+            ts_part = f.split("_")[-2:]  # extract timestamp from filename
+            timestamp = "_".join(ts_part).replace(".bak.csv", "")
+            st.write(f"{f} (backup at {timestamp})")
+    else:
+        st.info("No backups yet.")
+
+    if st.button("Reload Data from Current CSVs"):
+        st.cache_data.clear()
+        st.experimental_rerun()
