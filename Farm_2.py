@@ -202,10 +202,4 @@ with tab_records:
         st.dataframe(unloads.sort_values("Timestamp", ascending=False))
 
 # ---------- Bins Setup ----------
-with tab_bins:
-    st.subheader("Bins Setup (1–35)")
-    default_bins = [f"Bin {i}" for i in range(1, 36)]
-    for b in default_bins:
-        if b not in bin_setup["Bin"].tolist():
-            bin_setup = pd.concat([bin_setup, pd.DataFrame([{
-                "Bin": b, "Capacity_bu": 0.0, "
+with tab_bins
