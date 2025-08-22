@@ -69,6 +69,12 @@ def save_unloads(df):
     backup_file(UNLOADS_CSV)
     df.to_csv(UNLOADS_CSV, index=False)
 
+def restore_backup(backup_path, target_path):
+    shutil.copy(backup_path, target_path)
+    st.success(f"Restored {os.path.basename(target_path)} from backup")
+    st.cache_data.clear()
+    st.experimental_rerun()
+
 # ---------- Initialize CSVs ----------
 _init_csv(BIN_CSV, ["Bin", "Capacity_bu", "Variety", "Bushels_in_bin"])
 _init_csv(DELIVERIES_CSV, ["Timestamp", "Truck", "Bin", "Variety", "Bushels", "Notes"])
@@ -89,7 +95,7 @@ with st.sidebar:
     st.markdown(f"Data files: bin_setup.csv, deliveries.csv, unloads.csv")
     if st.button("Reload Data"):
         st.cache_data.clear()
-        st.rerun()
+        st.experimental_rerun()
     with st.expander("Reset / Clear Tables"):
         if st.checkbox("Confirm clear deliveries"):
             if st.button("Clear Deliveries"):
@@ -231,9 +237,20 @@ with tab_backups:
     backup_files = sorted(os.listdir(BACKUP_DIR), reverse=True)
     if backup_files:
         for f in backup_files:
-            ts_part = f.split("_")[-2:]  # extract timestamp from filename
+            ts_part = f.split("_")[-2:]  # extract timestamp
             timestamp = "_".join(ts_part).replace(".bak.csv", "")
-            st.write(f"{f} (backup at {timestamp})")
+            col1, col2 = st.columns([3,1])
+            with col1:
+                st.write(f"{f} (backup at {timestamp})")
+            with col2:
+                if st.button(f"Restore {f}"):
+                    backup_path = os.path.join(BACKUP_DIR, f)
+                    if "bin_setup.csv" in f:
+                        restore_backup(backup_path, BIN_CSV)
+                    elif "deliveries.csv" in f:
+                        restore_backup(backup_path, DELIVERIES_CSV)
+                    elif "unloads.csv" in f:
+                        restore_backup(backup_path, UNLOADS_CSV)
     else:
         st.info("No backups yet.")
 
