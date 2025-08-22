@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os, shutil
+import os
+import shutil
 
 # ---------- Configuration ----------
 st.set_page_config(page_title="Farm Bin & Delivery Tracker", page_icon="🌾", layout="wide")
@@ -22,12 +23,10 @@ def now_ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def backup_file(path):
-    """Create a timestamped backup of a CSV file."""
     if os.path.exists(path):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        fname = os.path.basename(path)
-        backup_path = os.path.join(BACKUP_DIR, f"{timestamp}_{fname}")
-        shutil.copy(path, backup_path)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.join(BACKUP_DIR, f"{os.path.basename(path)}.{ts}.bak")
+        shutil.copy2(path, backup_path)
         return backup_path
     return None
 
@@ -79,27 +78,27 @@ with st.sidebar:
         st.rerun()
     with st.expander("Reset / Clear Tables"):
         if st.button("Clear Deliveries"):
-            if st.confirm("⚠️ Are you sure you want to clear ALL Deliveries?"):
+            if st.checkbox("✅ Confirm clear deliveries", key="confirm_deliveries"):
                 backup_path = backup_file(DELIVERIES_CSV)
                 pd.DataFrame(columns=deliveries.columns).to_csv(DELIVERIES_CSV, index=False)
                 st.success(f"Deliveries cleared (backup saved: {backup_path})")
 
         if st.button("Clear Unloads"):
-            if st.confirm("⚠️ Are you sure you want to clear ALL Unloads?"):
+            if st.checkbox("✅ Confirm clear unloads", key="confirm_unloads"):
                 backup_path = backup_file(UNLOADS_CSV)
                 pd.DataFrame(columns=unloads.columns).to_csv(UNLOADS_CSV, index=False)
                 st.success(f"Unloads cleared (backup saved: {backup_path})")
 
         if st.button("Reset Bins to 0"):
-            if st.confirm("⚠️ Are you sure you want to reset ALL bins to 0 bushels?"):
+            if st.checkbox("✅ Confirm reset bins", key="confirm_bins"):
                 backup_path = backup_file(BIN_CSV)
                 bin_setup["Bushels_in_bin"] = 0.0
                 save_bin_setup(bin_setup)
                 st.success(f"Bins reset to 0 bushels (backup saved: {backup_path})")
 
 # Tabs
-tab_dashboard, tab_bins, tab_deliveries, tab_unloads, tab_records, tab_restore = st.tabs(
-    ["📊 Dashboard", "🧺 Bins Setup", "🚚 Add Delivery", "⬇️ Unload Bin", "📜 Records", "⏪ Restore Backup"]
+tab_dashboard, tab_bins, tab_deliveries, tab_unloads, tab_records = st.tabs(
+    ["📊 Dashboard", "🧺 Bins Setup", "🚚 Add Delivery", "⬇️ Unload Bin", "📜 Records"]
 )
 
 # ---------- Dashboard ----------
@@ -128,10 +127,7 @@ with tab_bins:
     default_bins = [f"Bin {i}" for i in range(1, 36)]
     for b in default_bins:
         if b not in bin_setup["Bin"].tolist():
-            bin_setup = pd.concat(
-                [bin_setup, pd.DataFrame([{"Bin": b, "Capacity_bu": 0.0, "Variety": "", "Bushels_in_bin": 0.0}])],
-                ignore_index=True
-            )
+            bin_setup = pd.concat([bin_setup, pd.DataFrame([{"Bin": b, "Capacity_bu": 0.0, "Variety": "", "Bushels_in_bin": 0.0}])], ignore_index=True)
     save_bin_setup(bin_setup)
 
     edited = st.data_editor(
@@ -139,7 +135,6 @@ with tab_bins:
         num_rows="dynamic",
         use_container_width=True
     )
-
     if st.button("Save Bins Setup"):
         for idx, row in edited.iterrows():
             bin_setup.loc[bin_setup["Bin"] == row["Bin"], ["Capacity_bu", "Variety"]] = row[["Capacity_bu", "Variety"]]
@@ -169,14 +164,7 @@ with tab_deliveries:
                 if not current_var:
                     bin_setup.at[idx, "Variety"] = variety.strip()
                 save_bin_setup(bin_setup)
-                deliveries = pd.concat([deliveries, pd.DataFrame([{
-                    "Timestamp": now_ts(),
-                    "Truck": truck,
-                    "Bin": bin_choice,
-                    "Variety": variety.strip(),
-                    "Bushels": bushels,
-                    "Notes": notes
-                }])], ignore_index=True)
+                deliveries = pd.concat([deliveries, pd.DataFrame([{"Timestamp": now_ts(), "Truck": truck, "Bin": bin_choice, "Variety": variety.strip(), "Bushels": bushels, "Notes": notes}])], ignore_index=True)
                 save_deliveries(deliveries)
                 st.success(f"Added {bushels} bu to {bin_choice}")
 
@@ -198,14 +186,7 @@ with tab_unloads:
             take = min(bushels, available)
             bin_setup.at[idx, "Bushels_in_bin"] -= take
             save_bin_setup(bin_setup)
-            unloads = pd.concat([unloads, pd.DataFrame([{
-                "Timestamp": now_ts(),
-                "Bin": bin_choice,
-                "Variety": bin_setup.at[idx, "Variety"],
-                "Bushels": take,
-                "Destination": destination,
-                "Notes": notes
-            }])], ignore_index=True)
+            unloads = pd.concat([unloads, pd.DataFrame([{"Timestamp": now_ts(), "Bin": bin_choice, "Variety": bin_setup.at[idx, "Variety"], "Bushels": take, "Destination": destination, "Notes": notes}])], ignore_index=True)
             save_unloads(unloads)
             st.success(f"Unloaded {take} bu from {bin_choice}")
 
@@ -220,18 +201,3 @@ with tab_records:
         st.markdown("**Unloads**")
         st.dataframe(unloads.sort_values("Timestamp", ascending=False))
 
-# ---------- Restore from Backup ----------
-with tab_restore:
-    st.subheader("Restore from Backup")
-    backups = sorted(os.listdir(BACKUP_DIR), reverse=True)
-    if not backups:
-        st.info("No backups available.")
-    else:
-        choice = st.selectbox("Choose a backup file to restore", backups)
-        if st.button("Restore Selected Backup"):
-            backup_path = os.path.join(BACKUP_DIR, choice)
-            target_name = choice.split("_", 1)[-1]  # original filename after timestamp_
-            target_path = os.path.join(DATA_DIR, target_name)
-            shutil.copy(backup_path, target_path)
-            st.success(f"Restored {target_name} from {choice}")
-            st.rerun()
