@@ -25,10 +25,13 @@ def now_ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def backup_file(path):
+    """Create timestamped backup for a CSV"""
     if os.path.exists(path):
         fname = os.path.basename(path)
         backup_name = f"{fname}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak.csv"
         shutil.copy(path, os.path.join(BACKUP_DIR, backup_name))
+        return backup_name
+    return None
 
 def auto_backup():
     """Backup all CSVs once when session ends"""
@@ -106,7 +109,7 @@ with st.sidebar:
                 save_bin_setup(bin_setup)
                 st.success("Bins reset to 0 bushels")
 
-# Tabs (new order)
+# Tabs
 tab_dashboard, tab_deliveries, tab_unloads, tab_records, tab_bins, tab_backups = st.tabs(
     ["📊 Dashboard", "🚚 Add Delivery", "⬇️ Unload Bin", "📜 Records", "🧺 Bins Setup", "💾 Backups / Reload"]
 )
@@ -205,48 +208,4 @@ with tab_bins:
     for b in default_bins:
         if b not in bin_setup["Bin"].tolist():
             bin_setup = pd.concat([bin_setup, pd.DataFrame([{
-                "Bin": b, "Capacity_bu": 0.0, "Variety": "", "Bushels_in_bin": 0.0
-            }])], ignore_index=True)
-    save_bin_setup(bin_setup)
-
-    edited = st.data_editor(
-        bin_setup[["Bin", "Capacity_bu", "Variety"]],
-        num_rows="dynamic",
-        use_container_width=True
-    )
-    if st.button("Save Bins Setup"):
-        for idx, row in edited.iterrows():
-            bin_setup.loc[bin_setup["Bin"] == row["Bin"], ["Capacity_bu", "Variety"]] = row[["Capacity_bu", "Variety"]]
-        save_bin_setup(bin_setup)
-        st.success("Bins updated")
-
-# ---------- Backups / Reload ----------
-with tab_backups:
-    st.subheader("💾 Manage Backups")
-    backup_files = [f for f in os.listdir(BACKUP_DIR) if f.endswith(".csv")]
-    if not backup_files:
-        st.info("No backups available yet.")
-    else:
-        choice = st.selectbox("Select a backup file:", backup_files)
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Restore Selected Backup"):
-                src = os.path.join(BACKUP_DIR, choice)
-                if "bin_setup" in choice:
-                    os.replace(src, BIN_CSV)
-                    st.success(f"Restored {choice} into bin setup.")
-                elif "deliveries" in choice:
-                    os.replace(src, DELIVERIES_CSV)
-                    st.success(f"Restored {choice} into deliveries.")
-                elif "unloads" in choice:
-                    os.replace(src, UNLOADS_CSV)
-                    st.success(f"Restored {choice} into unloads.")
-                st.rerun()
-        with col2:
-            with open(os.path.join(BACKUP_DIR, choice), "rb") as f:
-                st.download_button(
-                    label="⬇️ Download Backup",
-                    data=f,
-                    file_name=choice,
-                    mime="text/csv"
-                )
+                "Bin": b, "Capacity_bu": 0.0, "
