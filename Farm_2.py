@@ -2,15 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
-import shutil
 
 # ---------- Configuration ----------
 st.set_page_config(page_title="Farm Bin & Delivery Tracker", page_icon="🌾", layout="wide")
 
 DATA_DIR = os.path.dirname(__file__) if "__file__" in globals() else "."
-BACKUP_DIR = os.path.join(DATA_DIR, "backups")
-os.makedirs(BACKUP_DIR, exist_ok=True)
-
 BIN_CSV = os.path.join(DATA_DIR, "bin_setup.csv")
 DELIVERIES_CSV = os.path.join(DATA_DIR, "deliveries.csv")
 UNLOADS_CSV = os.path.join(DATA_DIR, "unloads.csv")
@@ -22,12 +18,6 @@ def _init_csv(path, columns):
 
 def now_ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-def percent(x, total):
-    try:
-        return max(0.0, min(100.0, 100.0 * float(x)/float(total)))
-    except:
-        return 0.0
 
 def load_bin_setup():
     _init_csv(BIN_CSV, ["Bin", "Capacity_bu", "Variety", "Bushels_in_bin"])
@@ -54,31 +44,6 @@ def load_unloads():
 def save_unloads(df):
     df.to_csv(UNLOADS_CSV, index=False)
 
-# ---------- Backup Logic ----------
-def make_fresh_backup():
-    # Clear all old backups
-    for f in os.listdir(BACKUP_DIR):
-        try:
-            os.remove(os.path.join(BACKUP_DIR, f))
-        except:
-            pass
-
-    # Make one new timestamped backup
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    session_backup_dir = os.path.join(BACKUP_DIR, f"backup_{ts}")
-    os.makedirs(session_backup_dir, exist_ok=True)
-
-    for src in [BIN_CSV, DELIVERIES_CSV, UNLOADS_CSV]:
-        if os.path.exists(src):
-            shutil.copy(src, session_backup_dir)
-
-    return session_backup_dir
-
-# Only run once per session
-if "backup_done" not in st.session_state:
-    backup_dir = make_fresh_backup()
-    st.session_state["backup_done"] = True
-
 # ---------- Initialize CSVs ----------
 _init_csv(BIN_CSV, ["Bin", "Capacity_bu", "Variety", "Bushels_in_bin"])
 _init_csv(DELIVERIES_CSV, ["Timestamp", "Truck", "Bin", "Variety", "Bushels", "Notes"])
@@ -93,9 +58,9 @@ unloads = load_unloads()
 st.title("🌾 Farm Bin & Delivery Tracker")
 st.caption("Track deliveries and unloads, prevent variety mixing.")
 
-# Tabs (your original order)
-tab_dashboard, tab_deliveries, tab_unloads, tab_records, tab_bins, tab_backups = st.tabs(
-    ["📊 Dashboard", "🚚 Add Delivery", "⬇️ Unload Bin", "📜 Records", "🧺 Bins Setup", "💾 Backups / Reload"]
+# Tabs (Backups removed)
+tab_dashboard, tab_deliveries, tab_unloads, tab_records, tab_bins = st.tabs(
+    ["📊 Dashboard", "🚚 Add Delivery", "⬇️ Unload Bin", "📜 Records", "🧺 Bins Setup"]
 )
 
 # ---------- Dashboard ----------
@@ -185,6 +150,27 @@ with tab_records:
         st.markdown("**Unloads**")
         st.dataframe(unloads.sort_values("Timestamp", ascending=False))
 
+    st.divider()
+    # Two-step clear all records
+    if "confirm_clear" not in st.session_state:
+        st.session_state.confirm_clear = False
+
+    if not st.session_state.confirm_clear:
+        if st.button("⚠️ Clear All Records"):
+            st.session_state.confirm_clear = True
+            st.warning("Press again to confirm clearing ALL records and bins!")
+    else:
+        if st.button("✅ Confirm Clear All Records"):
+            # Reset everything
+            pd.DataFrame(columns=["Timestamp","Truck","Bin","Variety","Bushels","Notes"]).to_csv(DELIVERIES_CSV, index=False)
+            pd.DataFrame(columns=["Timestamp","Bin","Variety","Bushels","Destination","Notes"]).to_csv(UNLOADS_CSV, index=False)
+            bin_setup["Variety"] = ""
+            bin_setup["Bushels_in_bin"] = 0.0
+            save_bin_setup(bin_setup)
+            st.success("All records cleared.")
+            st.session_state.confirm_clear = False
+            st.rerun()
+
 # ---------- Bins Setup ----------
 with tab_bins:
     st.subheader("Bins Setup (1–35)")
@@ -205,11 +191,3 @@ with tab_bins:
             bin_setup.loc[bin_setup["Bin"] == row["Bin"], ["Capacity_bu", "Variety"]] = row[["Capacity_bu", "Variety"]]
         save_bin_setup(bin_setup)
         st.success("Bins updated")
-
-# ---------- Backups / Reload ----------
-with tab_backups:
-    st.subheader("Backups & Data Reload")
-    st.info("A single session backup was created in the 'backups' folder at app start.")
-    if st.button("Reload Data"):
-        st.cache_data.clear()
-        st.rerun()
