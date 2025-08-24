@@ -1,135 +1,215 @@
 import streamlit as st
 import pandas as pd
-import os
 from datetime import datetime
+import os
+import shutil
 
-# ---------- File Paths ----------
-BIN_CSV = "bins.csv"
-DELIVERIES_CSV = "deliveries.csv"
-UNLOADS_CSV = "unloads.csv"
-BACKUP_DIR = "backups"
+# ---------- Configuration ----------
+st.set_page_config(page_title="Farm Bin & Delivery Tracker", page_icon="🌾", layout="wide")
 
-# ---------- Initialize Files ----------
-def init_file(filename, columns):
-    if not os.path.exists(filename):
-        pd.DataFrame(columns=columns).to_csv(filename, index=False)
+DATA_DIR = os.path.dirname(__file__) if "__file__" in globals() else "."
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
-init_file(BIN_CSV, ["Bin", "Capacity_bu", "Variety", "Bushels_in_bin"])
-init_file(DELIVERIES_CSV, ["Date", "Truck", "Field", "Bushels", "Variety", "Bin"])
-init_file(UNLOADS_CSV, ["Date", "Bin", "Bushels_unloaded"])
+BIN_CSV = os.path.join(DATA_DIR, "bin_setup.csv")
+DELIVERIES_CSV = os.path.join(DATA_DIR, "deliveries.csv")
+UNLOADS_CSV = os.path.join(DATA_DIR, "unloads.csv")
 
-# ---------- One-time session backup ----------
-if "backup_done" not in st.session_state:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    os.makedirs(BACKUP_DIR, exist_ok=True)
+# ---------- Helpers ----------
+def _init_csv(path, columns):
+    if not os.path.exists(path):
+        pd.DataFrame(columns=columns).to_csv(path, index=False)
 
-    # Clear old backups
+def now_ts():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def percent(x, total):
+    try:
+        return max(0.0, min(100.0, 100.0 * float(x)/float(total)))
+    except:
+        return 0.0
+
+def load_bin_setup():
+    _init_csv(BIN_CSV, ["Bin", "Capacity_bu", "Variety", "Bushels_in_bin"])
+    df = pd.read_csv(BIN_CSV)
+    if "Bushels_in_bin" not in df.columns:
+        df["Bushels_in_bin"] = 0.0
+    df["Bushels_in_bin"] = df["Bushels_in_bin"].fillna(0.0)
+    return df
+
+def save_bin_setup(df):
+    df.to_csv(BIN_CSV, index=False)
+
+def load_deliveries():
+    _init_csv(DELIVERIES_CSV, ["Timestamp", "Truck", "Bin", "Variety", "Bushels", "Notes"])
+    return pd.read_csv(DELIVERIES_CSV)
+
+def save_deliveries(df):
+    df.to_csv(DELIVERIES_CSV, index=False)
+
+def load_unloads():
+    _init_csv(UNLOADS_CSV, ["Timestamp", "Bin", "Variety", "Bushels", "Destination", "Notes"])
+    return pd.read_csv(UNLOADS_CSV)
+
+def save_unloads(df):
+    df.to_csv(UNLOADS_CSV, index=False)
+
+# ---------- Backup Logic ----------
+def make_fresh_backup():
+    # Clear all old backups
     for f in os.listdir(BACKUP_DIR):
-        os.remove(os.path.join(BACKUP_DIR, f))
+        try:
+            os.remove(os.path.join(BACKUP_DIR, f))
+        except:
+            pass
 
-    # Make one fresh backup
-    for fname in [BIN_CSV, DELIVERIES_CSV, UNLOADS_CSV]:
-        if os.path.exists(fname):
-            backup_path = os.path.join(BACKUP_DIR, f"{os.path.basename(fname)}_{timestamp}.bak.csv")
-            pd.read_csv(fname).to_csv(backup_path, index=False)
+    # Make one new timestamped backup
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_backup_dir = os.path.join(BACKUP_DIR, f"backup_{ts}")
+    os.makedirs(session_backup_dir, exist_ok=True)
 
+    for src in [BIN_CSV, DELIVERIES_CSV, UNLOADS_CSV]:
+        if os.path.exists(src):
+            shutil.copy(src, session_backup_dir)
+
+    return session_backup_dir
+
+# Only run once per session
+if "backup_done" not in st.session_state:
+    backup_dir = make_fresh_backup()
     st.session_state["backup_done"] = True
 
-# ---------- Load/Save Helpers ----------
-def load_csv(filename):
-    return pd.read_csv(filename)
+# ---------- Initialize CSVs ----------
+_init_csv(BIN_CSV, ["Bin", "Capacity_bu", "Variety", "Bushels_in_bin"])
+_init_csv(DELIVERIES_CSV, ["Timestamp", "Truck", "Bin", "Variety", "Bushels", "Notes"])
+_init_csv(UNLOADS_CSV, ["Timestamp", "Bin", "Variety", "Bushels", "Destination", "Notes"])
 
-def save_csv(df, filename):
-    df.to_csv(filename, index=False)
+# ---------- Load Data ----------
+bin_setup = load_bin_setup()
+deliveries = load_deliveries()
+unloads = load_unloads()
 
-# ---------- Data ----------
-bin_setup = load_csv(BIN_CSV)
-deliveries = load_csv(DELIVERIES_CSV)
-unloads = load_csv(UNLOADS_CSV)
-
-# ---------- Streamlit Tabs ----------
+# ---------- UI ----------
 st.title("🌾 Farm Bin & Delivery Tracker")
+st.caption("Track deliveries and unloads, prevent variety mixing.")
 
-tab_deliveries, tab_unloads, tab_records, tab_bins = st.tabs(
-    ["Deliveries", "Unload", "Records", "Bin Setup"]
+# Tabs (your original order)
+tab_dashboard, tab_deliveries, tab_unloads, tab_records, tab_bins, tab_backups = st.tabs(
+    ["📊 Dashboard", "🚚 Add Delivery", "⬇️ Unload Bin", "📜 Records", "🧺 Bins Setup", "💾 Backups / Reload"]
 )
 
-# ---------- Deliveries ----------
+# ---------- Dashboard ----------
+with tab_dashboard:
+    st.subheader("Farm Totals & Varieties")
+    if bin_setup.empty:
+        st.info("No bins yet.")
+    else:
+        total_capacity = bin_setup["Capacity_bu"].sum()
+        total_in_bins = bin_setup["Bushels_in_bin"].sum()
+        st.metric("Total Capacity (bu)", total_capacity)
+        st.metric("Total Grain in Bins (bu)", total_in_bins)
+
+        st.markdown("### Grain by Variety")
+        variety_totals = bin_setup.groupby("Variety")["Bushels_in_bin"].sum().reset_index()
+        variety_totals = variety_totals[variety_totals["Variety"] != ""]
+        if variety_totals.empty:
+            st.info("No grain in bins yet.")
+        else:
+            for _, row in variety_totals.iterrows():
+                st.metric(row["Variety"], row["Bushels_in_bin"])
+
+# ---------- Add Delivery ----------
 with tab_deliveries:
-    st.subheader("Add Delivery")
-    date = st.date_input("Date")
-    truck = st.text_input("Truck")
-    field = st.text_input("Field")
-    bushels = st.number_input("Bushels", min_value=0.0, step=1.0)
-    variety = st.text_input("Variety")
-    bin_choice = st.selectbox("Select Bin", bin_setup["Bin"].tolist())
+    st.subheader("Log Delivery")
+    if bin_setup.empty:
+        st.info("Add bins first")
+    else:
+        with st.form("delivery_form", clear_on_submit=True):
+            truck = st.text_input("Truck / Ticket")
+            bin_choice = st.selectbox("Select Bin", bin_setup["Bin"].tolist())
+            variety = st.text_input("Variety")
+            bushels = st.number_input("Bushels Delivered", min_value=0.0, step=10.0)
+            notes = st.text_input("Notes")
+            submit_delivery = st.form_submit_button("Add Delivery")
+        if submit_delivery:
+            idx = bin_setup.index[bin_setup["Bin"] == bin_choice][0]
+            current_var = bin_setup.at[idx, "Variety"] or ""
+            if current_var and variety.strip() != current_var:
+                st.error(f"Can't mix {variety.strip()} with {current_var}")
+            else:
+                bin_setup.at[idx, "Bushels_in_bin"] += bushels
+                if not current_var:
+                    bin_setup.at[idx, "Variety"] = variety.strip()
+                save_bin_setup(bin_setup)
+                deliveries = pd.concat([deliveries, pd.DataFrame([{
+                    "Timestamp": now_ts(), "Truck": truck, "Bin": bin_choice,
+                    "Variety": variety.strip(), "Bushels": bushels, "Notes": notes
+                }])], ignore_index=True)
+                save_deliveries(deliveries)
+                st.success(f"Added {bushels} bu to {bin_choice}")
 
-    if st.button("Add Delivery"):
-        new_row = {
-            "Date": date,
-            "Truck": truck,
-            "Field": field,
-            "Bushels": bushels,
-            "Variety": variety,
-            "Bin": bin_choice
-        }
-        deliveries = pd.concat([deliveries, pd.DataFrame([new_row])], ignore_index=True)
-        save_csv(deliveries, DELIVERIES_CSV)
-        bin_setup.loc[bin_setup["Bin"] == bin_choice, "Bushels_in_bin"] += bushels
-        save_csv(bin_setup, BIN_CSV)
-        st.success("Delivery added")
-
-# ---------- Unloads ----------
+# ---------- Unload Bin ----------
 with tab_unloads:
-    st.subheader("Unload Grain")
-    date = st.date_input("Unload Date")
-    bin_choice = st.selectbox("Select Bin", bin_setup["Bin"].tolist())
-    bushels_unloaded = st.number_input("Bushels Unloaded", min_value=0.0, step=1.0)
-
-    if st.button("Unload"):
-        new_row = {
-            "Date": date,
-            "Bin": bin_choice,
-            "Bushels_unloaded": bushels_unloaded
-        }
-        unloads = pd.concat([unloads, pd.DataFrame([new_row])], ignore_index=True)
-        save_csv(unloads, UNLOADS_CSV)
-        bin_setup.loc[bin_setup["Bin"] == bin_choice, "Bushels_in_bin"] -= bushels_unloaded
-        save_csv(bin_setup, BIN_CSV)
-        st.success("Unload recorded")
+    st.subheader("Unload from Bin")
+    if bin_setup.empty:
+        st.info("Add bins first")
+    else:
+        with st.form("unload_form", clear_on_submit=True):
+            bin_choice = st.selectbox("Select Bin", bin_setup["Bin"].tolist(), key="unload_bin")
+            destination = st.text_input("Destination")
+            bushels = st.number_input("Bushels to unload", min_value=0.0, step=10.0)
+            notes = st.text_input("Notes")
+            submit_unload = st.form_submit_button("Unload")
+        if submit_unload:
+            idx = bin_setup.index[bin_setup["Bin"] == bin_choice][0]
+            available = bin_setup.at[idx, "Bushels_in_bin"]
+            take = min(bushels, available)
+            bin_setup.at[idx, "Bushels_in_bin"] -= take
+            save_bin_setup(bin_setup)
+            unloads = pd.concat([unloads, pd.DataFrame([{
+                "Timestamp": now_ts(), "Bin": bin_choice,
+                "Variety": bin_setup.at[idx, "Variety"],
+                "Bushels": take, "Destination": destination, "Notes": notes
+            }])], ignore_index=True)
+            save_unloads(unloads)
+            st.success(f"Unloaded {take} bu from {bin_choice}")
 
 # ---------- Records ----------
 with tab_records:
-    st.subheader("All Deliveries")
-    st.dataframe(deliveries)
+    st.subheader("Deliveries & Unloads")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Deliveries**")
+        st.dataframe(deliveries.sort_values("Timestamp", ascending=False))
+    with col2:
+        st.markdown("**Unloads**")
+        st.dataframe(unloads.sort_values("Timestamp", ascending=False))
 
-    st.subheader("All Unloads")
-    st.dataframe(unloads)
-
-    st.subheader("Bin Status")
-    st.dataframe(bin_setup)
-
-# ---------- Bin Setup ----------
+# ---------- Bins Setup ----------
 with tab_bins:
     st.subheader("Bins Setup (1–35)")
     default_bins = [f"Bin {i}" for i in range(1, 36)]
     for b in default_bins:
         if b not in bin_setup["Bin"].tolist():
             bin_setup = pd.concat([bin_setup, pd.DataFrame([{
-                "Bin": b,
-                "Capacity_bu": 0.0,
-                "Variety": "",
-                "Bushels_in_bin": 0.0
+                "Bin": b, "Capacity_bu": 0.0, "Variety": "", "Bushels_in_bin": 0.0
             }])], ignore_index=True)
-    save_csv(bin_setup, BIN_CSV)
+    save_bin_setup(bin_setup)
 
     edited = st.data_editor(
         bin_setup[["Bin", "Capacity_bu", "Variety"]],
-        num_rows="dynamic",
-        use_container_width=True
+        num_rows="dynamic", use_container_width=True
     )
     if st.button("Save Bins Setup"):
         for idx, row in edited.iterrows():
             bin_setup.loc[bin_setup["Bin"] == row["Bin"], ["Capacity_bu", "Variety"]] = row[["Capacity_bu", "Variety"]]
-        save_csv(bin_setup, BIN_CSV)
+        save_bin_setup(bin_setup)
         st.success("Bins updated")
+
+# ---------- Backups / Reload ----------
+with tab_backups:
+    st.subheader("Backups & Data Reload")
+    st.info("A single session backup was created in the 'backups' folder at app start.")
+    if st.button("Reload Data"):
+        st.cache_data.clear()
+        st.rerun()
